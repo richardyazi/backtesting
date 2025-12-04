@@ -1,0 +1,22 @@
+[
+  {
+    "stock_code": "600519.XSHG",
+    "name": "贵州茅台",
+    "market": "XSHG"
+  },
+  {
+    "stock_code": "000001.XSHE",
+    "name": "平安银行",
+    "market": "XSHE"
+  },
+  {
+    "stock_code": "60*.XSHG",
+    "name": "沪市主板",
+    "market": "XSHG"
+  },
+  {
+    "stock_code": "00*.XSHE",
+    "name": "深市主板",
+    "market": "XSHE"
+  }
+]

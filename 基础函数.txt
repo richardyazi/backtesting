@@ -1,0 +1,443 @@
+from jqdata import *
+import pandas as pd
+import numpy as np
+import traceback
+
+def calculate_kdj(high, low, close, n=9, m1=3, m2=3):
+    """
+    计算KDJ指标
+    参数：
+        high: 最高价序列
+        low: 最低价序列
+        close: 收盘价序列
+        n: RSV周期，默认9
+        m1: K值平滑周期，默认3
+        m2: D值平滑周期，默认3
+    返回：
+        K, D, J值的Series
+    """
+    # 计算RSV
+    lowest_low = low.rolling(window=n).min()
+    highest_high = high.rolling(window=n).max()
+    rsv = 100 * (close - lowest_low) / (highest_high - lowest_low)
+    
+    # 计算K值（RSV的移动平均）
+    k = rsv.ewm(alpha=1/m1).mean()
+    
+    # 计算D值（K值的移动平均）
+    d = k.ewm(alpha=1/m2).mean()
+    
+    # 计算J值
+    j = 3 * k - 2 * d
+    
+    return k, d, j
+
+def calculate_bbi(close_prices):
+    """
+    计算BBI指标
+    根据补充内容：BBI = (ma3+ma6+ma12+ma24) / 4
+    """
+    ma3 = close_prices.rolling(3).mean()
+    ma6 = close_prices.rolling(6).mean()
+    ma12 = close_prices.rolling(12).mean()
+    ma24 = close_prices.rolling(24).mean()
+    bbi = (ma3 + ma6 + ma12 + ma24) / 4
+    return bbi
+
+def is_st_stock(stock):
+    """判断是否为ST股票"""
+    try:
+        info = get_security_info(stock)
+        return 'ST' in info.display_name or '*ST' in info.display_name
+    except:
+        return False
+
+def get_market_cap(stock_code, query_date):
+    """
+    获取股票在特定时期的市值（总市值）
+    
+    参数：
+        stock_code (str): 股票代码，如 '600519.XSHG'
+        query_date (str): 查询日期，格式为 'YYYY-MM-DD'
+    
+    返回：
+        float: 指定日期的市值（单位：元），若数据缺失返回 None
+    """
+    try:
+        # 构建查询对象，筛选指定股票和日期的市值数据
+        q = query(
+            valuation.code,
+            valuation.market_cap
+        ).filter(
+            valuation.code == stock_code
+        )
+        
+        # 获取基本面数据
+        df = get_fundamentals(q, date=query_date)
+        
+        if not df.empty:
+            return df['market_cap'].iloc[0]
+        else:            
+            return None
+    except Exception as e:
+        print(f"发生异常: {e}")
+        return None
+
+def get_recent_year_net_profit(stock_code, end_date=None,count = 3):
+    """
+    查询某公司近3年的净利润（基于年报数据）
+    
+    参数：
+        stock_code (str): 股票代码，如 '600519.XSHG'
+        end_date (str): 查询截止日期，格式为 'YYYY-MM-DD'（默认当前日期）
+    
+    返回：
+        pandas.DataFrame: 包含统计年份statDate,发布日期pubDate和净利润net_profit的表格，若数据缺失返回空DataFrame
+    """
+    if end_date is None:
+        end_date = datetime.now()
+    elif isinstance(end_date,str):
+        end_date = pd.to_datetime(end_date)
+        
+    try:
+        # 查询最近3个年报的净利润和报告期
+        q = query(
+            income.net_profit,
+            income.pubDate,
+            income.statDate
+        ).filter(
+            income.code == stock_code,
+            income.pubDate <= end_date,
+        )
+        
+#         df = get_fundamentals(q, statDate=end_date[:4])  # 按年份查询[2](@ref)
+        df = pd.concat([get_fundamentals(q,statDate=end_date.year - i ) for i in range(count+5)])
+        
+        if not df.empty:
+            return df.sort_values(by = ['statDate'])[-1*count:]
+        else:
+            print(f"未找到股票 {stock_code} 近3年的净利润数据")
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"发生异常: {e}")
+        return pd.DataFrame()
+
+def check_profit_continuity(stock_code, query_date=None):
+    """
+    判断股票是否连续3年盈利（基于年报数据）
+    
+    参数：
+        stock_code (str): 股票代码，如 '600519.XSHG'
+        query_date (str): 查询日期，格式为 'YYYY-MM-DD'（默认当前日期）
+    
+    返回：
+        bool: True表示连续3年盈利，False表示不满足或数据缺失
+    """
+    if query_date is None:
+        query_date = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        # 获取近3年净利润数据
+        df = get_recent_year_net_profit(stock_code, query_date, count=3)
+        if df.empty or len(df) < 3:
+            return False
+        
+        # 检查净利润是否全部为正且稳定增长（可选逻辑）
+        profits = df['net_profit'].values
+        is_positive = all(profit > 0 for profit in profits)  # 连续盈利[6](@ref)[7](@ref)
+        is_growing = all(profits[i] >= profits[i+1] for i in range(len(profits)-1))  # 净利润稳定或增长[7](@ref)
+        
+        return is_positive and is_growing  # 可根据需求调整逻辑
+    
+    except Exception as e:
+        print(f"发生异常: {e}")
+        return False
+
+def trend_analysis(stock, context):
+    """趋势判断"""
+    try:
+        # 获取价格数据
+        price_data = get_price(stock, count=250, end_date=context.current_dt, 
+                             fields=['close', 'high', 'low'])
+        close_prices = price_data['close']
+        high_prices = price_data['high']
+        low_prices = price_data['low']
+        
+        # 计算MA50
+        ma50 = close_prices.rolling(50).mean()
+        current_ma50 = ma50.iloc[-1]
+        
+        # 检查MA50是否处于一年内新高
+        year_ma50 = ma50.iloc[-250:]
+        if current_ma50 < year_ma50.max():
+            return False
+        
+        # 计算BBI（修正后的公式）
+        bbi = calculate_bbi(close_prices)
+        current_bbi = bbi.iloc[-1]
+        
+        # 检查BBI > MA50
+        if current_bbi <= current_ma50:
+            return False
+        
+        # 计算KDJ指标
+        k, d, j = calculate_kdj(high_prices, low_prices, close_prices, n=9, m1=3, m2=3)
+        current_k = k.iloc[-1]
+        current_d = d.iloc[-1]
+        current_j = j.iloc[-1]
+        
+        # KDJ辅助判断：K值上穿D值且J值向上
+        if current_k <= current_d or current_j <= 20:
+            return False
+        
+        # 检查月线MACD水下金叉右侧
+        if not check_monthly_macd(stock, context.current_dt):
+            return False
+            
+        return True
+    except:
+        return False
+
+def check_monthly_macd(stock, date):
+    """检查月线MACD水下金叉右侧"""
+    try:
+        # 获取月线数据
+        monthly_data = get_price(stock, count=24, end_date=date, 
+                               fields=['close'], frequency='monthly')
+        close_prices = monthly_data[stock]['close']
+        
+        # 计算MACD
+        ema12 = close_prices.ewm(span=12).mean()
+        ema26 = close_prices.ewm(span=26).mean()
+        diff = ema12 - ema26
+        dea = diff.ewm(span=9).mean()
+        
+        # 检查当前是否在水下（DIFF, DEA均<0）
+        current_diff = diff.iloc[-1]
+        current_dea = dea.iloc[-1]
+        
+        if current_diff >= 0 or current_dea >= 0:
+            return False
+        
+        # 检查是否出现过水下金叉
+        for i in range(1, len(diff)):
+            if (diff.iloc[i-1] <= dea.iloc[i-1] and 
+                diff.iloc[i] > dea.iloc[i] and 
+                diff.iloc[i] < 0 and dea.iloc[i] < 0):
+                return True
+                
+        return False
+    except:
+        return False
+
+def entry_signal(stock, context):
+    """建仓信号判断"""
+    try:
+        # 获取价格数据
+        price_data = get_price(stock, count=100, end_date=context.current_dt, 
+                             fields=['close', 'volume', 'high', 'low'])
+        close_prices = price_data[stock]['close']
+        volumes = price_data[stock]['volume']
+        high_prices = price_data[stock]['high']
+        low_prices = price_data[stock]['low']
+        
+        # 计算BBI（修正后的公式）
+        bbi = calculate_bbi(close_prices)
+        
+        # 计算5日均线
+        ma5 = close_prices.rolling(5).mean()
+        
+        current_price = close_prices.iloc[-1]
+        current_bbi = bbi.iloc[-1]
+        current_ma5 = ma5.iloc[-1]
+        
+        # 检查5日均线上穿BBI线
+        if current_ma5 <= current_bbi:
+            return False
+        
+        # 检查前一日5日均线是否在BBI下方
+        prev_ma5 = ma5.iloc[-2]
+        prev_bbi = bbi.iloc[-2]
+        if prev_ma5 >= prev_bbi:
+            return False
+        
+        # 计算KDJ指标辅助判断
+        k, d, j = calculate_kdj(high_prices, low_prices, close_prices, n=9, m1=3, m2=3)
+        current_k = k.iloc[-1]
+        current_d = d.iloc[-1]
+        
+        # KDJ金叉确认
+        if current_k <= current_d:
+            return False
+        
+        # 检查是否突破颈线后缩量回调（简化处理）
+        recent_volume = volumes.iloc[-5:].mean()
+        prev_volume = volumes.iloc[-10:-5].mean()
+        
+        if recent_volume >= prev_volume:  # 缩量回调
+            return False
+            
+        return True
+    except:
+        return False
+
+def handle_data(context, data=None):
+    """主策略逻辑"""
+    # 清理已清仓的股票
+    g.positions = {k: v for k, v in g.positions.items() if v['shares'] > 0}
+    
+    # 检查现有持仓的风险管理
+    for stock in list(g.positions.keys()):
+        risk_management(stock, context)
+    
+    # 如果持仓数量未达到上限，尝试建仓
+    if len(g.positions) < g.max_stocks:
+        for stock in g.stock_pool:
+            if stock in g.positions:
+                continue
+                
+            # 检查趋势和建仓信号
+            if trend_analysis(stock, context) and entry_signal(stock, context):
+                # 计算买入数量
+                # current_price = data[stock].close
+                current_price = get_current_data()[stock].last_price
+                if current_price > 0:
+                    shares = int(g.max_position_value / current_price / 100) * 100
+                    if shares > 0:
+                        # 买入
+                        order_target_value(stock, shares * current_price)
+                        g.positions[stock] = {
+                            'shares': shares,
+                            'entry_price': current_price,
+                            'entry_date': context.current_dt,
+                            'stop_loss_price': current_price * (1 - g.stop_loss_pct)
+                        }
+                        log.info(f"买入 {stock}, 价格: {current_price}, 数量: {shares}")
+                        
+def check_buy_conditions(prev_data, prev_prev_data):
+    """
+    检查买入条件 - 严格按照《B1买入》文档条件
+    输入：
+        prev_data: 上一个交易日(B交易日)股票数据（pd.Series）
+        prev_prev_data: 上上一个交易日(A交易日)股票数据（pd.Series）
+        包含字段：open,close,high,low,volume,w_line,y_line,j,mavol100,pct_change,amplitude
+    输出：
+        Bool, 是否满足所有买入条件
+    """
+    if prev_data.isna().sum()>0 or prev_prev_data.isna().sum()>0 : 
+        return False
+    try:
+        # 严格按照文档检查买入条件（必须同时满足所有条件）
+        
+        # 条件1: B交易日的收盘价 > A交易日的收盘价
+        condition1 = prev_data['close'] > prev_prev_data['close']
+        
+        # 条件2: B交易日KDJ的J值小于13
+        condition2 = prev_data['j'] < 13
+        
+        # 条件3: B交易日的白线 > 黄线
+        condition3 = prev_data['w_line'] > prev_data['y_line']
+        
+        # 条件4: B交易日的收盘价 > 黄线
+        condition4 = prev_data['close'] > prev_data['y_line']
+        
+        # 条件5: B交易日的涨幅在[-2%, 1.8%]之间
+        condition5 = -0.02 <= prev_data['pct_change'] <= 0.018
+        
+        # 条件6: B交易日的振幅在[0%, 6%]之间
+        condition6 = 0 <= prev_data['amplitude'] <= 0.06
+        
+        # 条件7: B交易日的成交量 < B交易日当天的MA100Vol
+        condition7 = prev_data['volume'] < prev_data['mavol100']
+        
+        # 必须同时满足所有7个条件
+        all_conditions_met = (condition1 and condition2 and condition3 and 
+                            condition4 and condition5 and condition6 and condition7)
+        
+        return all_conditions_met
+        
+    except Exception as e:
+        # 异常处理：打印错误信息
+        print(f"检查买入条件时发生错误: {e}")
+        return False
+
+def risk_management(stock, context):
+    """风险管理"""
+    if stock not in g.positions:
+        return
+        
+    position = g.positions[stock]
+    current_price = get_current_data()[stock].last_price
+    
+    # 止损
+    if current_price <= position['stop_loss_price']:
+        order_target_percent(stock, 0)
+        del g.positions[stock]
+        log.info(f"止损清仓 {stock}, 价格: {current_price}")
+        return
+    
+    # 超时清仓
+    holding_days = (context.current_dt - position['entry_date']).days
+    if holding_days >= g.max_holding_days:
+        # 检查是否盈利
+        if current_price <= position['entry_price']:
+            order_target_percent(stock, 0)
+            del g.positions[stock]
+            log.info(f"超时清仓 {stock}, 价格: {current_price}")
+            return
+    
+    # 减仓逻辑
+    try:
+        # 获取价格数据计算BBI
+        price_data = get_price(stock, count=60, end_date=context.current_dt, 
+                             fields=['close', 'high', 'low'])
+        close_prices = price_data[stock]['close']
+        high_prices = price_data[stock]['high']
+        low_prices = price_data[stock]['low']
+        
+        # 计算BBI（修正后的公式）
+        bbi = calculate_bbi(close_prices)
+        current_bbi = bbi.iloc[-1]
+        
+        # 计算KDJ指标
+        k, d, j = calculate_kdj(high_prices, low_prices, close_prices, n=9, m1=3, m2=3)
+        current_k = k.iloc[-1]
+        current_d = d.iloc[-1]
+        
+        # 检查是否在BBI线上方
+        if current_price > current_bbi:
+            # 检查最近是否有两根中阳线
+            recent_closes = close_prices.iloc[-2:]
+            recent_opens = get_price(stock, count=2, end_date=context.current_dt, 
+                                   fields=['open'])[stock]['open']
+            
+            yang_count = 0
+            for i in range(2):
+                if recent_closes.iloc[i] > recent_opens.iloc[i]:
+                    yang_count += 1
+            
+            # 结合KDJ高位钝化信号
+            if (yang_count >= 2 and position['shares'] > 0) or (current_k > 80 and current_d > 80):
+                # 减仓一半
+                target_shares = position['shares'] // 2
+                order_target_value(stock, target_shares * current_price)
+                position['shares'] = target_shares
+                log.info(f"减仓一半 {stock}, 剩余数量: {target_shares}")
+        
+        # 检查趋势终结信号（跌破BBI线或KDJ死叉）
+        elif (current_price <= current_bbi or current_k < current_d) and position['shares'] > 0:
+            order_target_percent(stock, 0)
+            del g.positions[stock]
+            log.info(f"趋势终结清仓 {stock}, 价格: {current_price}")
+            
+    except:
+        pass
+
+def after_trading_end(context):
+    """盘后运行"""
+    # 记录持仓信息
+    if g.positions:
+        log.info(f"当前持仓: {len(g.positions)} 只股票")
+        for stock, pos in g.positions.items():
+            current_price = get_current_data()[stock].last_price
+            log.info(f"{stock}: 数量 {pos['shares']}, 当前价格 {current_price}")

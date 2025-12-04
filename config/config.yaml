@@ -1,0 +1,22 @@
+stocks:
+  - 600519.XSHG  # 贵州茅台
+  - 000001.XSHE  # 平安银行
+  - "60*.XSHG"   # 沪市主板
+  - "00*.XSHE"   # 深市主板
+
+api:
+  endpoint: "https://api.example.com"
+  key: "your_api_key"
+  rate_limit: 10  # 每秒请求数
+  retry_times: 3
+
+download:
+  start_date: "2010-01-01"
+  end_date: "2025-12-04" 
+  frequency: "daily"  # daily/weekly/monthly
+  fields: ["open", "high", "low", "close", "volume"]
+
+storage:
+  base_path: "./data"
+  format: "parquet"
+  compression: "snappy"
