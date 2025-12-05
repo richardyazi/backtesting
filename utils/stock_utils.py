@@ -137,6 +137,20 @@ def get_listing_year(stock_code: str) -> int:
         return 2000
 
 
+def get_stock_exchange(stock_code: str) -> str:
+    """
+    根据股票代码获取交易所标识
+    """
+    if stock_code.endswith('.XSHG'):
+        return 'SH'
+    elif stock_code.endswith('.XSHE'):
+        return 'SZ'
+    elif stock_code.endswith('.BJ'):
+        return 'BJ'
+    else:
+        raise ValueError(f"无法识别的股票代码格式: {stock_code}")
+
+
 if __name__ == "__main__":
     # 测试代码
     test_codes = ['601888', '002594', '000001', '600000', '300831']
