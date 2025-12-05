@@ -199,3 +199,63 @@ get_security_info(code, date=None)
 start_date = get_security_info('000001.XSHE').start_date
 print(start_date)
 ```
+
+
+# normalize_code
+
+## 功能描述
+将其他形式的股票代码转换为聚宽可用的股票代码形式。
+
+## 函数签名
+```python
+normalize_code(codes)
+```
+
+## 参数说明
+
+### `codes`
+- **类型**: 字符串、整数、列表或元组
+- **描述**: 需要转换的股票代码，支持多种输入格式
+  - 支持字符串格式：如 `'000001'`、`'SZ000001'`、`'000001SZ'`、`'000001.sz'`
+  - 支持整数格式：如 `1`
+  - 支持列表或元组：批量转换多个代码
+
+## 适用范围
+- A股市场股票代码
+- 期货代码
+- 场内基金代码
+
+## 转换规则
+- 将各种格式的股票代码统一转换为聚宽标准格式
+- 对于A股股票，转换为 `XXXXXX.XSHE`（深交所）或 `XXXXXX.XSHG`（上交所）格式
+
+## 返回值
+- **单个代码**: 返回转换后的标准代码字符串
+- **多个代码**: 返回包含所有转换后代码的列表
+
+## 使用示例
+
+```python
+# 输入
+codes = ('000001', 'SZ000001', '000001SZ', '000001.sz', '000001.XSHE')
+result = normalize_code(codes)
+
+# 输出
+print(result)
+# ['000001.XSHE', '000001.XSHE', '000001.XSHE', '000001.XSHE', '000001.XSHE']
+
+# 单个代码转换
+single_code = normalize_code('600000')
+print(single_code)
+# '600000.XSHG'
+
+# 整数代码转换
+int_code = normalize_code(1)
+print(int_code)
+# '000001.XSHE'
+```
+
+## 注意事项
+- 仅支持A股、期货和场内基金代码的转换
+- 对于不支持的代码类型，可能会返回错误或保持原样
+- 建议在调用 `get_price` 等函数前使用此函数进行代码标准化
