@@ -259,3 +259,117 @@ print(int_code)
 - 仅支持A股、期货和场内基金代码的转换
 - 对于不支持的代码类型，可能会返回错误或保持原样
 - 建议在调用 `get_price` 等函数前使用此函数进行代码标准化
+
+
+# get_all_securities
+
+## 功能描述
+获取平台支持的所有股票、基金、指数、期货、期权信息。
+
+## 函数签名
+```python
+get_all_securities(types=[], date=None)
+```
+
+## 参数说明
+
+### `types` (list)
+- **描述**: 用来过滤 securities 的类型
+- **可选值**: 
+  - `'stock'`: 股票
+  - `'fund'`: 基金
+  - `'index'`: 指数
+  - `'futures'`: 期货
+  - `'options'`: 期权
+  - `'etf'`: 场内ETF基金
+  - `'lof'`: 上市型开放基金
+  - `'fja'`: 场内分级A
+  - `'fjb'`: 场内分级B
+  - `'open_fund'`: 开放式基金
+  - `'bond_fund'`: 债券基金
+  - `'stock_fund'`: 股票型基金
+  - `'QDII_fund'`: QDII基金
+  - `'money_market_fund'`: 场外交易的货币基金
+  - `'mixture_fund'`: 混合型基金
+- **默认值**: 空列表，返回所有股票，不包括基金、指数和期货
+
+### `date`
+- **类型**: 字符串或 `datetime.datetime`/`datetime.date` 对象
+- **描述**: 用于获取某日期还在上市的股票信息
+- **默认值**: `None`，表示获取所有日期的股票信息
+- **建议**: 使用时添加上指定日期
+
+## 返回值
+- **类型**: `pandas.DataFrame`
+- **描述**: 包含所有标的详细信息的数据框
+
+## 返回数据格式
+
+| 字段名 | 类型 | 描述 |
+|--------|------|------|
+| `display_name` | str | 中文名称，只返回最新的 |
+| `name` | str | 缩写简称 |
+| `start_date` | datetime.date | 上市日期 |
+| `end_date` | datetime.date | 退市日期（股票是最后一个交易日，不同于摘牌日期），如果没有退市则为 `2200-01-01` |
+| `type` | str | 标的类型 |
+
+## 使用示例
+
+```python
+# 获取所有股票信息
+df = get_all_securities()
+print(df[:2])
+```
+
+**输出示例**:
+```
+           display_name  name  start_date    end_date  type
+000001.XSHE      平安银行  PAYH  1991-04-03  9999-01-01  stock
+000002.XSHE       万 科Ａ   WKA  1991-01-29  9999-01-01  stock
+```
+
+```python
+# 获取指定日期在市的股票
+df = get_all_securities(date='2024-01-01')
+
+# 获取股票和指数信息
+df = get_all_securities(types=['stock', 'index'])
+
+# 获取所有基金信息
+df = get_all_securities(types=['fund', 'etf', 'lof'])
+```
+
+## 注意事项
+- 判断是否 ST 股请使用 `get_extras` 函数
+- 建议使用时指定 `date` 参数，避免获取过多历史数据
+- 返回的数据量较大，建议根据实际需求进行过滤
+
+
+# get_trade_days
+
+## 功能描述
+获取指定范围交易日，返回一个包含 `datetime.date` 对象的列表。
+
+## 函数签名
+```python
+get_trade_days(start_date=None, end_date=None, count=None)
+```
+
+## 参数说明
+
+### `start_date` 与 `count`
+- **二选一**: 不可同时使用。
+- **`start_date`**: 开始日期，字符串或 `datetime.date`/`datetime.datetime` 对象。
+- **`count`**: 数量，必须大于 0。表示取 `end_date` 往前的 `count` 个交易日，包含 `end_date` 当天。
+
+### `end_date`
+- **类型**: 字符串或 `datetime.date`/`datetime.datetime` 对象
+- **描述**: 结束日期，默认为 `datetime.date.today()`
+
+## 返回值
+- **类型**: 包含 `datetime.date` 对象的列表
+- **描述**: 包含指定 `start_date` 和 `end_date` 的所有交易日，默认返回至 `datetime.date.today()` 的所有交易日
+
+## 注意事项
+- 最多只能获取到截至现实时间的当前年份的最后一天的交易日数据
+- 需导入 jqdata 模块，即在策略或研究起始位置加入 `import jqdata`
